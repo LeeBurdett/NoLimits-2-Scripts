@@ -1,0 +1,130 @@
+/***
+!!! Station Gates Controller for 3D model station gates in NoLimits 2 !!!
+
+Author: Lee Burdett
+Modified: 5th October 2018
+
+Description:
+Takes the simulator's information about a coaster's station gates' status and controls
+the rotation of an imported 3D model gate between the closed and open positions.
+
+-----------------------------------------------------------------------------------------------
+Thanks for downloading my script!
+
+HOW TO USE:
+
+1.	Make or aquire a 3D model of a gate. Make sure that the 3D gate model's vertical axis origin 
+	is aligned with the pole you want it to rotate around. This script rotates the model around 
+	its vertical axis origin. Place your 3D model in your park's directory along with this script. 
+	Make sure that this script is called "GateScript.nlvm" otherwise it will not run.
+	Save all files in:
+	Typical Directory: C:\Users\YourName\Documents\com.nolimitscoaster.nolimits2\YourParkName
+	
+2.	In the NL2SCO Editor (Scenery tab), press "New...", name your .nl2sco file whatever you 
+	want and save it in your park's directory, then choose your 3D gate model (.dae files work  
+	from the free version of sketchup) and click "Open". Next, go to the "Scripts" tab on the 
+	far right of the NL2SCO editor. Click "Add", press the "..." button for "Script Class" and 
+	then select this script.
+	
+3.	When placing the gates in the editor, set them to your desired CLOSED position. By default, 
+	this script will open them by 90 degrees (~1.57radians) You can even edit the rotation 
+	angle to whatever you want by changing the rotationAngleDegrees variable (line 80).
+	Place the gates within 10m of your coaster. If you want them further away for some reason, 
+	change the "range" variable in this script to a higher number.
+
+4.	Double click on your station section in the editor and change the name of your station to
+	"Station". The name is CASE SENSITIVE. This allows the script to find the station and link
+	your gates to the station, as the gate position property is stored in the station section.
+
+5.	The script determines the gates' direction of rotation (Clockwise or AntiClockwise) based 
+	on the name you set for them in the editor. To set a gate to rotate clockwise, double 
+	click on it in the editor and enter "Clockwise" into the "Name" box. Once again, the name
+	is case sensitive.
+	
+	Technically you only need to name your clockwise gates, as the code only checks for this 
+	case and will assume any others are anticlockwise. However you can set your anticlockwise 
+	rotating gates with "AntiClockwise" if you wish, it will not affect the script.
+
+Good work! Your gates should now rotate by the angle you specified, and in the direction you 
+specified by naming them in the editor. In addition to the gates you'll need to model some
+railings as well to go with them. If you just google image search "roller coaster station
+gates" you'll get some ideas of the kind of gate designs you can use.
+-----------------------------------------------------------------------------------------------
+
+Usage:
+Feel free to copy this code, Break it, fix it, use it as inspiration, read it for entertainment
+while you commute or use it as a part of your own projects. I've done my best to annotate what
+every line does to the best of my understanding to help with your own projects. You can thank 
+me if you want but you don't have to, just don't claim you made this yourself.
+-----------------------------------------------------------------------------------------------
+
+Improvements:
+As of now I haven't worked out how to make Scene Objects with "elements" that have their own
+rotation properties. This would be extremely useful for making station gates with just one
+3D model. Perhaps this is something I'll delve into in the future. 
+
+***/
+
+
+// Importing the sections of the NL2 API we want to use
+import com.nolimitscoaster.*;
+import nlvm.math3d.*;
+
+public class GateScript extends Script { // Defines Class
+	
+	// Variables
+	
+	// CHANGE THE NUMBER TO YOUR DESIRED ROTATION ANGLE IN DEGREES - If you use any decimal places, 
+	// put an "f" after your number, ie "10.5f" instead of "10.5". This tells NL2 that you are using
+	// "float" precision. Annoyingly, if you don't have any decimal places, you can't put an f.
+	private float rotationAngleDegrees = 90; // Desired rotation angle in degrees
+	
+	private SceneObject gate; // will store the scene object (your gate 3D model)
+
+	private float rotationAngle = rotationAngleDegrees*(3.14159f/180); // Rotation angle converted to radians, where degrees = radians*pi/180.
+	private String rotationDirection; // rotation direction, found by naming the gate model in editor "Clockwise" or "AntiClockwise". If unspecified it will assume anticlockwise
+	
+	private static final float range = 10; // The range that the findNearestCoasterTrack() will search for track.
+	private TrackPos trackPos; // Position of track found by findNearestCoasterTrack()
+	private Coaster coaster; // will store the coaster
+	private Section station; // stores station section
+	
+	private Vector3f pitchHeadBankOut = new Vector3f(0,0,0); // stores initial rotation properties vector
+	private float initY; // stores the y rotation value from the vector
+	
+	private float openness; // Used to track the getStationGateState() value
+	private float updatedAngle; // The angle that the gate needs to be rotated to according to openness*rotationAngle
+
+	public bool onInit(){ // Runs when scene object loads (when the gate loads)
+		
+		gate = sim.getSceneObjectForEntityId(getParentEntityId()); // get the gate
+
+		trackPos = sim.findNearestCoasterTrack(gate.getTranslation(), range); //finds nearest coaster track based on location of gate and given range for the search
+		if (trackPos == null){ // Error message for if no track is found.
+			System.err.println("No coaster found within" + range + " metres of gate. Move gate closer or increase range in GateScript.nlvm file.");
+			return false; // failed initiation, onNextFrame() will not run
+		}
+		
+		coaster = trackPos.getCoaster(); // Finds coaster based on track found
+		// CHANGE TEXT IN "" TO THE NAME OF YOUR STATION SECTION
+		station = coaster.getSection("Station"); // Finds section of coaster by name
+
+		gate.getRotation(pitchHeadBankOut); // get intital gate rotation vector
+		initY = pitchHeadBankOut.y; // get initial y value (heading) from gate rotation vector
+		rotationDirection = gate.getName(); // Sets rotation direction based on name of gate in editor
+		return true; // onInit() boolean needs to return true for onNextFrame() to run
+	}
+
+	public void onNextFrame(float tick){ // Runs for each frame update
+
+		openness = station.getStationGateState(); // Openness is how open the gate is from 0 to 1, where 0 is fully closed and 1 is fully open
+		updatedAngle = openness*rotationAngle; // Work out gate rotation using openness as fraction of the desired rotation angle
+		
+		if(rotationDirection.equals("Clockwise")){ // Checks if rotation direction is clockwise
+			gate.setRotation(0, initY - updatedAngle, 0); // set gate rotation matrix using initial Y and new rotation angle
+		}
+		else{ // Anticlockwise
+			gate.setRotation(0, initY + updatedAngle, 0); // set gate rotation matrix using initial Y and new rotation angle
+		}
+	}
+}
